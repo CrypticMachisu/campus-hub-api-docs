@@ -1,0 +1,744 @@
+openapi: 3.0.0
+info:
+  title: CampusHub API
+  version: 2.0.0
+  description: >
+    REST API for the CampusHub clubs-and-events app. Clubs and events can be
+    read without signing in. Creating or changing data requires a bearer token
+    from POST /auth/login. All responses are JSON, except that unknown URLs
+    return Express's default HTML 404 page.
+
+
+servers:
+  - url: http://localhost:5000/api
+    description: Local development
+
+tags:
+  - name: Health
+    description: Server status.
+  - name: Auth
+    description: Sign in and identify the current user.
+  - name: Clubs
+    description: Campus clubs.
+  - name: Events
+    description: Events hosted by clubs.
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Check that the API is running
+      security: []
+      responses:
+        '200':
+          description: The API is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+              example:
+                ok: true
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Sign in and receive a token
+      description: >
+        Demo accounts all use the password set by `npm run set-passwords`
+        (default `campushub123`). The token is a JWT valid for 7 days.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: amara.okafor@campus.edu
+              password: campushub123
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                user:
+                  id: user-01
+                  name: Amara Okafor
+                  email: amara.okafor@campus.edu
+                  role: tier1
+                  adminForClubs: []
+        '400':
+          description: Email or password missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Email and password are required.
+        '401':
+          description: Wrong email or password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Invalid email or password.
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Create a member account
+      description: Creates a user with the `member` role and signs them in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              name: Test Student
+              email: test.student@campus.edu
+              password: longenough123
+      responses:
+        '201':
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                user:
+                  id: user-1791804321595
+                  name: Test Student
+                  email: test.student@campus.edu
+                  role: member
+                  adminForClubs: []
+        '400':
+          description: Invalid input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingFields:
+                  value:
+                    error: Name and email are required.
+                invalidEmail:
+                  value:
+                    error: Enter a valid email address.
+                shortPassword:
+                  value:
+                    error: Password must be at least 8 characters.
+        '409':
+          description: The email is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: That email is already registered.
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Request a password reset
+      description: >
+        Always returns the same response whether or not the email is registered.
+        No email is sent; the reset link is printed to the server console.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+            example:
+              email: amara.okafor@campus.edu
+      responses:
+        '200':
+          description: Request accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+              example:
+                ok: true
+        '400':
+          description: Email missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingEmail:
+                  value:
+                    error: Email is required.
+                invalidEmail:
+                  value:
+                    error: Enter a valid email address.
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: Set a new password with a reset token
+      description: The token comes from the reset link printed to the server console and is valid for 1 hour.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+              example:
+                ok: true
+        '400':
+          description: Bad token or password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingToken:
+                  value:
+                    error: Reset token is required.
+                shortPassword:
+                  value:
+                    error: Password must be at least 8 characters.
+                badToken:
+                  value:
+                    error: That reset link is invalid or has expired.
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Get the signed-in user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The user the token belongs to.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+              example:
+                user:
+                  id: user-01
+                  name: Amara Okafor
+                  email: amara.okafor@campus.edu
+                  role: tier1
+                  adminForClubs: []
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /clubs:
+    get:
+      tags: [Clubs]
+      operationId: listClubs
+      summary: List all clubs
+      description: Clubs are returned in alphabetical order by name.
+      security: []
+      responses:
+        '200':
+          description: All clubs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clubs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Club'
+              example:
+                clubs:
+                  - id: club-04
+                    name: Byte Club
+                    category: Technology
+                    description: Hands-on workshops, hackathon prep, and project nights for anyone into building software.
+                    logoUrl: https://images.unsplash.com/photo-1758270705317-3ef6142d306f?w=200
+                    meetingTime: Thursdays, 7:00 PM
+                    meetingLocation: Engineering Building, Lab 108
+                    tags: [coding, hackathon, workshops]
+    post:
+      tags: [Clubs]
+      operationId: createClub
+      summary: Create a club
+      description: Only tier1 users can create clubs.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClubInput'
+            example:
+              name: Chess Society
+              category: Social
+              description: Casual and ranked chess nights.
+              meetingTime: Wednesdays, 6:00 PM
+              meetingLocation: Student Union, Room 102
+              tags: [chess, games]
+      responses:
+        '201':
+          description: Club created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  club:
+                    $ref: '#/components/schemas/Club'
+        '400':
+          description: Missing club name or unknown category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingName:
+                  value:
+                    error: Club name is required.
+                unknownCategory:
+                  value:
+                    error: 'Unknown category: Cooking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Signed in, but not a tier1 user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Tier 1 admin access required.
+
+  /events:
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: List all events
+      description: Events are returned in date and time order.
+      security: []
+      responses:
+        '200':
+          description: All events.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Event'
+              example:
+                events:
+                  - id: event-05
+                    clubId: club-03
+                    title: River Trail 5K
+                    description: A social 5K along the river trail, coffee after at the Rec Center.
+                    category: Sports & Fitness
+                    date: '2026-10-12'
+                    time: '06:30'
+                    location: Rec Center steps
+                    imageUrl: https://images.unsplash.com/photo-1745790289741-12a211a8325d?w=600
+                    isSeed: true
+    post:
+      tags: [Events]
+      operationId: createEvent
+      summary: Create an event
+      description: >
+        The caller must manage the club the event belongs to. The new event gets
+        an ID starting with `custom-`. The returned `date` can be one day earlier
+        than the date sent when the server runs in a time zone ahead of UTC.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+            example:
+              clubId: club-01
+              title: README Test Event
+              description: Testing
+              category: Academic
+              date: '2026-11-01'
+              time: '18:00'
+              location: Room 1
+      responses:
+        '201':
+          description: Event created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event:
+                    $ref: '#/components/schemas/Event'
+              example:
+                event:
+                  id: custom-1791803508229
+                  clubId: club-01
+                  title: README Test Event
+                  description: Testing
+                  category: Academic
+                  date: '2026-10-31'
+                  time: '18:00'
+                  location: Room 1
+                  imageUrl: null
+                  isSeed: false
+        '400':
+          description: Missing title or unknown category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingTitle:
+                  value:
+                    error: Title is required.
+                unknownCategory:
+                  value:
+                    error: 'Unknown category: Cooking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NoClubAccess'
+
+  /events/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the event.
+        schema:
+          type: string
+          example: custom-1791803508229
+    put:
+      tags: [Events]
+      operationId: updateEvent
+      summary: Update an event
+      description: >
+        Replaces the event's fields. Only events whose ID starts with `custom-`
+        can be changed; built-in `event-` events are read-only. The caller must
+        manage the event's club. The club of an event cannot be changed.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+            example:
+              title: README Test Event (updated)
+              description: Testing
+              category: Academic
+              date: '2026-11-01'
+              time: '19:00'
+              location: Room 2
+      responses:
+        '200':
+          description: Event updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event:
+                    $ref: '#/components/schemas/Event'
+        '400':
+          description: Missing title or unknown category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingTitle:
+                  value:
+                    error: Title is required.
+                unknownCategory:
+                  value:
+                    error: 'Unknown category: Cooking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/EventForbidden'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+    delete:
+      tags: [Events]
+      operationId: deleteEvent
+      summary: Delete an event
+      description: >
+        Only events whose ID starts with `custom-` can be deleted. The caller
+        must manage the event's club. Signups for the event are deleted with it.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Event deleted. The response body is empty.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/EventForbidden'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Not authenticated.
+    NoClubAccess:
+      description: The caller does not manage that club.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "You don't have admin access to that club."
+    EventForbidden:
+      description: The event is a built-in event, or the caller does not manage its club.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            seedEvent:
+              value:
+                error: Seed events are read-only.
+            noClubAccess:
+              value:
+                error: "You don't have admin access to that club."
+    EventNotFound:
+      description: No event has that ID.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Event not found.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+
+    Ok:
+      type: object
+      properties:
+        ok:
+          type: boolean
+
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: 'JWT to send as the header `Authorization: Bearer <token>`.'
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: user-01
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [tier1, tier2, member]
+        adminForClubs:
+          type: array
+          items:
+            type: string
+
+    Club:
+      type: object
+      properties:
+        id:
+          type: string
+          example: club-04
+        name:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        logoUrl:
+          type: string
+        meetingTime:
+          type: string
+        meetingLocation:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    ClubInput:
+      type: object
+      required: [name, category]
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+          description: Name of an existing category, for example Technology or Social.
+        description:
+          type: string
+        logoUrl:
+          type: string
+        meetingTime:
+          type: string
+        meetingLocation:
+          type: string
+        tags:
+          description: A list of tags, or a single comma-separated string.
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: string
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          example: event-05
+        clubId:
+          type: string
+          description: ID of the hosting club.
+          example: club-03
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+          description: 24-hour time, HH:MM.
+          example: '18:00'
+        location:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+        isSeed:
+          type: boolean
+          description: True for the built-in demo events.
+
+    EventInput:
+      type: object
+      required: [title, category, date, time]
+      properties:
+        clubId:
+          type: string
+          description: Required when creating an event. Ignored when updating one.
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+          description: Name of an existing category, for example Academic or Technology.
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+          example: '18:00'
+        location:
+          type: string
+        imageUrl:
+          type: string
